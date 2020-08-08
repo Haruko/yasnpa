@@ -1,0 +1,29 @@
+{
+  "name": "yasnpa",
+  "version": "0.0.1",
+  "description": "Yet Another Spotify Now Playing App",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZoeyBonaventura/yasnpa.git"
+  },
+  "keywords": [
+    "Spotify",
+    "Playing"
+  ],
+  "author": "Isoitiro",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/ZoeyBonaventura/yasnpa/issues"
+  },
+  "homepage": "https://github.com/ZoeyBonaventura/yasnpa#readme",
+  "dependencies": {
+    "express": "^4.17.1",
+    "open": "^7.1.0",
+    "pkce": "^1.0.0-beta2"
+  }
+}
