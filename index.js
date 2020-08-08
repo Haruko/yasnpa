@@ -21,7 +21,7 @@ const state = pkce.createChallenge(); // Too lazy to make my own random stuff
 // Generate Code Verifier and Code Challenge
 const codePair = pkce.create();
 
-let access_token, token_type, expires_in, refresh_token, tokenError, tokenIntervalID, nowPlayingData;
+let access_token, token_type, expires_in, refresh_token, tokenError, tokenIntervalID;
 
 /**
     Express Functions
@@ -64,7 +64,12 @@ app.get('/cb', (req, res) => {
 
       // Timer for getting now playing data
       tokenIntervalID = setInterval(() => {
-        getNowPlayingData();
+        return getNowPlayingData()
+          .then((nowPlaying) => {
+            return formatNowPlayingDataObject(nowPlaying);
+          }).then((nowPlaying) => {
+            console.log(nowPlaying);
+          }).catch((error) => console.log(error));
       }, 1 * 1000);
     }).catch((error) => {
       // console.log(error);
@@ -83,6 +88,13 @@ function sendPublicFile(res, filename) {
 /**
     Utility Functions
 */
+
+function shutdown() {
+  clearInterval(tokenIntervalID);
+  server.close(() => {
+    process.exit();
+  });
+}
 
 // Open browser tab with URI
 async function openURI(uri) {
@@ -129,11 +141,84 @@ async function requestNewAccessToken(reqData) {
   });
 }
 
-function shutdown() {
-  clearInterval(tokenIntervalID);
-  server.close(() => {
-    process.exit();
-  });
+function formatTimeMS(ms) {
+  let progress = Math.floor(ms / 1000);
+  const progressHours = Math.floor(progress / 3600);
+  progress -= progressHours * 3600;
+  const progressMins = Math.floor(progress / 60);
+  progress -= progressMins * 60;
+  const progressSecs = progress;
+
+  const hrs = progressHours ? String(progressHours).padStart(2, '0') + ':' : '';
+  const mins = String(progressMins).padStart(2, '0');
+  const secs = String(progressSecs).padStart(2, '0');
+  return `${hrs}${mins}:${secs}`;
+}
+
+function formatNowPlayingDataObject(data) {
+  const formattedData = {
+    is_paused: !data.is_playing,
+    repeat_state: data.repeat_state === 'off' ? false : data.repeat_state,
+    shuffle_state: data.shuffle_state,
+
+    track: null,
+    progress: formatTimeMS(data.progress_ms),
+  };
+
+  // Deal with track
+  // track, episode, ad, unknown
+  // local files
+  const item = data.item;
+
+  let track;
+
+  switch (data.currently_playing_type) {
+    case 'track':
+      track = {
+        title: item.name,
+        artist: item.artists.map((artist) => artist.name).join(', '),
+        album: item.album.name,
+        duration: formatTimeMS(item.duration_ms),
+        image: item.album.images[0] ? item.album.images[0].url : null,
+      }
+
+      break;
+    case 'episode':
+      track = {
+        title: item.name,
+        artist: item.show.name,
+        album: null,
+        duration: formatTimeMS(item.duration_ms),
+        image: item.images[0] ? item.images[0].url : null,
+      }
+
+      break;
+    case 'ad':
+      track = {
+        title: 'Advertisement',
+        artist: null,
+        album: null,
+        duration: null,
+        image: null,
+      }
+
+      break;
+    case 'unknown':
+    default:
+      track = {
+        title: 'Unknown',
+        artist: null,
+        album: null,
+        duration: null,
+        image: null,
+      }
+
+      break;
+  }
+
+  formattedData.track = track;
+
+  return formattedData;
 }
 
 
@@ -177,11 +262,20 @@ function getNowPlayingData() {
         Authorization: `${token_type} ${access_token}`,
       },
     }).then((response) => {
-      nowPlayingData = {};
+      const resData = response.data;
 
-      console.log(response.data);
+      return {
+        is_playing: resData.is_playing,
+        repeat_state: resData.repeat_state,
+        shuffle_state: resData.shuffle_state,
+
+        progress_ms: resData.progress_ms,
+
+        currently_playing_type: resData.currently_playing_type,
+        item: resData.item,
+      };
     }).catch((error) => {
-      // console.log(error);
+      console.log(error);
       console.log('Error in retrieving now playing data.')
     });
   } else {
