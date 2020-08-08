@@ -14,10 +14,14 @@ const port = 9753;
 const redirect_uri = `http://localhost:${port}/cb`;
 const scope = 'user-read-playback-state';
 
+const spotifyAuthURI = 'https://accounts.spotify.com/authorize?';
+const spotifyTokenURI = 'https://accounts.spotify.com/api/token';
+
 const state = pkce.createChallenge(); // Too lazy to make my own random stuff
 // Generate Code Verifier and Code Challenge
 const codePair = pkce.create();
 
+let access_token, expires_in, refresh_token;
 
 /**
     Express Functions
@@ -40,14 +44,35 @@ app.get('/cb', (req, res) => {
       code: authCode,
       redirect_uri: redirect_uri,
       code_verifier: codePair.codeVerifier,
-    }
+    };
 
     return requestNewAccessToken(reqData).then((resData) => {
       if (resData.status === 200) {
-        sendFile(res, 'success.html');
+        sendPublicFile(res, 'success.html');
+        return resData;
       } else {
-        sendFile(res, 'error.html');
+        sendPublicFile(res, 'error.html');
+        throw 'Error in requesting access token.';
       }
+    }).then((data) => {
+      access_token = data.access_token;
+      expires_in = data.expires_in;
+      refresh_token = data.refresh_token;
+
+      setupRefreshTimeout();
+
+
+
+
+
+      // const refreshInterval = setInterval(() => {
+
+      // }, data.);
+
+
+      // Timer for getting now playing data
+    }).catch((error) => {
+      console.log(error);
     });
   }
 });
@@ -80,7 +105,7 @@ function generateAuthURI() {
   const code_challenge_method = 'S256';
   const code_challenge = codePair.codeChallenge;
 
-  const authURI = `https://accounts.spotify.com/authorize?` +
+  const authURI = spotifyAuthURI +
     `client_id=${client_id}&` +
     `response_type=${response_type}&` +
     `redirect_uri=${redirect_uri}&` +
@@ -93,7 +118,7 @@ function generateAuthURI() {
 }
 
 async function requestNewAccessToken(reqData) {
-  return axios.post('https://accounts.spotify.com/api/token', qs.stringify(reqData)).then((response) => {
+  return axios.post(spotifyTokenURI, qs.stringify(reqData)).then((response) => {
     if (response.status === 200) {
       let { access_token, token_type, scope, expires_in, refresh_token } = response.data;
       return {
@@ -108,6 +133,33 @@ async function requestNewAccessToken(reqData) {
       };
     }
   });
+}
+
+
+/**
+    Utility Functions
+*/
+
+function setupRefreshTimeout() {
+  // Timer for refreshing access token 10 seconds before it expires
+  setTimeout(() => {
+    const reqData = {
+      grant_type: 'refresh_token',
+      refresh_token: refresh_token,
+      client_id: client_id,
+    };
+
+    return requestNewAccessToken(reqData)
+      .then((resData) => {
+        access_token = resData.access_token;
+        expires_in = resData.expires_in;
+        refresh_token = resData.refresh_token;
+
+
+        // Start another timeout so we can refresh again later
+        setupRefreshTimeout();
+      });
+  }, (expires_in - 10) * 1000);
 }
 
 
