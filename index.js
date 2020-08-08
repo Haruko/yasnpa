@@ -21,7 +21,7 @@ const state = pkce.createChallenge(); // Too lazy to make my own random stuff
 // Generate Code Verifier and Code Challenge
 const codePair = pkce.create();
 
-let access_token, expires_in, refresh_token;
+let access_token, token_type, expires_in, refresh_token, tokenError, tokenIntervalID, nowPlayingData;
 
 /**
     Express Functions
@@ -56,29 +56,22 @@ app.get('/cb', (req, res) => {
       }
     }).then((data) => {
       access_token = data.access_token;
+      token_type = data.token_type;
       expires_in = data.expires_in;
       refresh_token = data.refresh_token;
 
       setupRefreshTimeout();
 
-
-
-
-
-      // const refreshInterval = setInterval(() => {
-
-      // }, data.);
-
-
       // Timer for getting now playing data
+      tokenIntervalID = setInterval(() => {
+        getNowPlayingData();
+      }, 1 * 1000);
     }).catch((error) => {
-      console.log(error);
+      // console.log(error);
+      console.log('Error occurred in retrieving response data.');
+      shutdown();
     });
   }
-});
-
-app.listen(port, () => {
-  console.log(`Please authorize YASNPA to access your Spotify currently playing data.`);
 });
 
 // Send file response to requester
@@ -124,6 +117,7 @@ async function requestNewAccessToken(reqData) {
       return {
         status: response.status,
         access_token: access_token,
+        token_type: token_type,
         expires_in: expires_in,
         refresh_token: refresh_token,
       }
@@ -135,9 +129,16 @@ async function requestNewAccessToken(reqData) {
   });
 }
 
+function shutdown() {
+  clearInterval(tokenIntervalID);
+  server.close(() => {
+    process.exit();
+  });
+}
+
 
 /**
-    Utility Functions
+    Timer Functions
 */
 
 function setupRefreshTimeout() {
@@ -151,21 +152,52 @@ function setupRefreshTimeout() {
 
     return requestNewAccessToken(reqData)
       .then((resData) => {
-        access_token = resData.access_token;
-        expires_in = resData.expires_in;
-        refresh_token = resData.refresh_token;
+        if (resData.status === 200) {
+          access_token = resData.access_token;
+          token_type = resData.token_type;
+          expires_in = resData.expires_in;
+          refresh_token = resData.refresh_token;
 
 
-        // Start another timeout so we can refresh again later
-        setupRefreshTimeout();
+          // Start another timeout so we can refresh again later
+          setupRefreshTimeout();
+        } else {
+          tokenError = resData.status;
+        }
       });
   }, (expires_in - 10) * 1000);
+}
+
+function getNowPlayingData() {
+  if (typeof(tokenError) === 'undefined') {
+    // Get now playing data yay
+
+    return axios.get('https://api.spotify.com/v1/me/player', {
+      headers: {
+        Authorization: `${token_type} ${access_token}`,
+      },
+    }).then((response) => {
+      nowPlayingData = {};
+
+      console.log(response.data);
+    }).catch((error) => {
+      // console.log(error);
+      console.log('Error in retrieving now playing data.')
+    });
+  } else {
+    console.log(`Error code ${tokenError} encountered. Please restart the application. Shutting down...`);
+    shutdown();
+  }
 }
 
 
 /**
     Start Here
 */
+
+const server = app.listen(port, () => {
+  console.log(`Please authorize YASNPA to access your Spotify currently playing data.`);
+});
 
 (async () => {
   openURI(generateAuthURI());
