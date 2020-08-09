@@ -4,11 +4,38 @@ const express = require('express');
 const axios = require('axios');
 const pkce = require('pkce');
 const qs = require('querystring');
+const fs = require('fs-extra');
 
 
 /**
     Config
 */
+
+const outputDir = path.join(__dirname, 'output');
+
+/*
+  List of file outputs with string formats
+  
+  List of usable variables:
+    [{TITLE}] - Track title
+    [{ARTIST}] - Track artists separated by commas
+    [{ALBUM}] - Track album
+    [{LENGTH}] - Length of track
+    [{PROGRESS}] - Current playback progress
+*/
+
+const formatStrings = [{
+  filename: 'trackinfo.txt',
+  formatString: `[{ARTIST}] - [{TITLE}]`,
+}, {
+  filename: 'progress.txt',
+  formatString: `[{PROGRESS}] / [{LENGTH}]`,
+}];
+
+/**
+    System Config
+*/
+
 const client_id = '850dbd9b43904e2cb1bee51c7d88ff47';
 const port = 9753;
 const redirect_uri = `http://localhost:${port}/cb`;
@@ -68,8 +95,12 @@ app.get('/cb', (req, res) => {
           .then((nowPlaying) => {
             return formatNowPlayingDataObject(nowPlaying);
           }).then((nowPlaying) => {
-            console.log(nowPlaying);
-          }).catch((error) => console.log(error));
+            return outputFileData(nowPlaying);
+          }).catch((error) => {
+            // console.log(error);
+            console.log('Error occurred in retrieving now playing data.');
+            shutdown();
+          });
       }, 1 * 1000);
     }).catch((error) => {
       // console.log(error);
@@ -84,6 +115,28 @@ function sendPublicFile(res, filename) {
   res.sendFile(path.join(__dirname, 'public', filename));
 }
 
+
+/**
+    File Functions
+*/
+
+function createOutputDir() {
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+}
+
+async function outputFileData(trackData) {
+  // Format the data strings
+  const outputData = formatStrings.map((fileData) => {
+    return {
+      filename: fileData.filename,
+      data: processFormatString(fileData.formatString, trackData),
+    };
+  }).forEach((fileData) => {
+    return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' });
+  });
+}
 
 /**
     Utility Functions
@@ -140,6 +193,11 @@ async function requestNewAccessToken(reqData) {
     }
   });
 }
+
+
+/**
+    Formatting Functions
+*/
 
 function formatTimeMS(ms) {
   let progress = Math.floor(ms / 1000);
@@ -221,6 +279,17 @@ function formatNowPlayingDataObject(data) {
   return formattedData;
 }
 
+function processFormatString(formatString, nowPlayingData) {
+  const trackData = nowPlayingData.track;
+
+  formatString = formatString.replace(/\[\{TITLE\}\]/g, trackData.title);
+  formatString = formatString.replace(/\[\{ARTIST\}\]/g, trackData.artist);
+  formatString = formatString.replace(/\[\{ALBUM\}\]/g, trackData.album);
+  formatString = formatString.replace(/\[\{LENGTH\}\]/g, trackData.duration);
+  formatString = formatString.replace(/\[\{PROGRESS\}\]/g, nowPlayingData.progress);
+
+  return formatString;
+}
 
 /**
     Timer Functions
@@ -292,6 +361,8 @@ function getNowPlayingData() {
 const server = app.listen(port, () => {
   console.log(`Please authorize YASNPA to access your Spotify currently playing data.`);
 });
+
+createOutputDir();
 
 (async () => {
   openURI(generateAuthURI());
