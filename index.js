@@ -49,6 +49,8 @@ const state = pkce.createChallenge(); // Too lazy to make my own random stuff
 // Generate Code Verifier and Code Challenge
 const codePair = pkce.create();
 
+const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
+
 let access_token,
   token_type,
   expires_in,
@@ -75,7 +77,7 @@ app.get('/cb', (req, res) => {
   const authError = req.query.error;
 
   if (state !== authState || typeof(authError) !== 'undefined') {
-    sendFile(res, 'error.html');
+    sendPublicFile(res, 'error.html');
   } else {
     const reqData = {
       client_id: client_id,
@@ -91,7 +93,7 @@ app.get('/cb', (req, res) => {
         return resData;
       } else {
         sendPublicFile(res, 'error.html');
-        throw 'Error in requesting access token.';
+        throw 'Error requesting access token.';
       }
     }).then((data) => {
       access_token = data.access_token;
@@ -109,9 +111,7 @@ app.get('/cb', (req, res) => {
           }, apiCallDelay * 1000);
         });
     }).catch((error) => {
-      console.log(error);
-      console.log('Error occurred in retrieving response data.');
-      shutdown();
+      printError(error, 'requesting access token from callback', true);
     });
   }
 });
@@ -149,6 +149,7 @@ async function outputFileData(trackData) {
 */
 
 function shutdown() {
+  console.log('Shutting down...');
   server.close(() => {
     process.exit();
   });
@@ -197,6 +198,22 @@ async function requestNewAccessToken(reqData) {
       };
     }
   });
+}
+
+function printError(error, action, madagascar) {
+  if (action) {
+    console.log(error);
+    console.log(`Error when ${action}! Please submit above error in a GitHub issue at ${repoURI}.`)
+  } else {
+    console.log(error);
+    console.log(`Error! Please submit above error in a GitHub issue at ${repoURI}.`)
+  }
+
+  if (madagascar) {
+    shutdown();
+  } else {
+    console.log('If this error loops, press Ctrl-C to close application.');
+  }
 }
 
 
@@ -341,9 +358,7 @@ function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
           return outputFileData(nowPlayingFormatted)
             .then(() => { return [nowPlayingFormatted, nowPlaying] });
         }).catch((error) => {
-          console.log(error);
-          console.log('Error occurred in retrieving now playing data.');
-          shutdown();
+          printError(error, 'retrieving now playing data from end of song', false);
         });
     }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
 
@@ -419,14 +434,12 @@ async function getNowPlayingCallStack() {
       setupProgressInterval();
       setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
     }).catch((error) => {
-      console.log(error);
-      console.log('Error occurred in retrieving now playing data.');
-      shutdown();
+      printError(error, 'retrieving now playing data from main thread', false);
     });
 }
 
 function getNowPlayingData() {
-  if (typeof(tokenError) === 'undefined') {
+  if (typeof tokenError === 'undefined') {
     // Get now playing data yay
 
     return axios.get('https://api.spotify.com/v1/me/player', {
@@ -447,12 +460,10 @@ function getNowPlayingData() {
         item: resData.item,
       };
     }).catch((error) => {
-      console.log(error);
-      console.log('Error in retrieving now playing data.')
+      printError(error, 'retrieving now playing data from api', false);
     });
   } else {
-    console.log(`Error code ${tokenError} encountered. Please restart the application. Shutting down...`);
-    shutdown();
+    printError(`Error code ${tokenError} encountered.`, 'retrieving access token', true);
   }
 }
 
