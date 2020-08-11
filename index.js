@@ -13,8 +13,6 @@ const dirname = path.dirname(process.execPath);
     Config
 */
 
-// const configData = require(path.join(dirname, 'config.js'));
-
 const configData = JSON5.parse(fs.readFileSync(path.join(dirname, 'config.json')));
 
 const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
