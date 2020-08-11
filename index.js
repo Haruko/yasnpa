@@ -367,17 +367,21 @@ function checkForRefreshToken() {
 */
 
 function formatTimeMS(ms) {
-  let progress = Math.floor(ms / 1000);
-  const progressHours = Math.floor(progress / 3600);
-  progress -= progressHours * 3600;
-  const progressMins = Math.floor(progress / 60);
-  progress -= progressMins * 60;
-  const progressSecs = progress;
+  if (typeof ms === 'number') {
+    let progress = Math.floor(ms / 1000);
+    const progressHours = Math.floor(progress / 3600);
+    progress -= progressHours * 3600;
+    const progressMins = Math.floor(progress / 60);
+    progress -= progressMins * 60;
+    const progressSecs = progress;
 
-  const hrs = progressHours ? String(progressHours).padStart(2, '0') + ':' : '';
-  const mins = String(progressMins).padStart(2, '0');
-  const secs = String(progressSecs).padStart(2, '0');
-  return `${hrs}${mins}:${secs}`;
+    const hrs = progressHours ? String(progressHours).padStart(2, '0') + ':' : '';
+    const mins = String(progressMins).padStart(2, '0');
+    const secs = String(progressSecs).padStart(2, '0');
+    return `${hrs}${mins}:${secs}`;
+  } else {
+    return '00:00';
+  }
 }
 
 function formatNowPlayingDataObject(data) {
