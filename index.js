@@ -322,10 +322,10 @@ function formatNowPlayingDataObject(data) {
 function processFormatString(formatString, nowPlayingData) {
   const trackData = nowPlayingData.track;
 
-  formatString = formatString.replace(/\[\{TITLE\}\]/g, trackData.title);
-  formatString = formatString.replace(/\[\{ARTIST\}\]/g, trackData.artist);
-  formatString = formatString.replace(/\[\{ALBUM\}\]/g, trackData.album);
-  formatString = formatString.replace(/\[\{LENGTH\}\]/g, trackData.duration);
+  formatString = formatString.replace(/\[\{TITLE\}\]/g, trackData.title ? trackData.title : 'Unknown');
+  formatString = formatString.replace(/\[\{ARTIST\}\]/g, trackData.artist ? trackData.artist : 'Unknown');
+  formatString = formatString.replace(/\[\{ALBUM\}\]/g, trackData.album ? trackData.album : 'Unknown');
+  formatString = formatString.replace(/\[\{LENGTH\}\]/g, trackData.duration ? trackData.duration : '??:??');
   formatString = formatString.replace(/\[\{PROGRESS\}\]/g, nowPlayingData.progress);
 
   return formatString;
