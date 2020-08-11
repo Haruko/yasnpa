@@ -111,46 +111,60 @@ function sendPublicFile(res, filename) {
 
 
 /**
-    File Functions
+    API Functions
 */
 
-function createOutputDir() {
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
+async function getNowPlayingCallStack() {
+  return getNowPlayingData()
+    .then((nowPlaying) => {
+      trackProgress = nowPlaying.progress_ms;
+      trackProgressLastUpdate = Date.now();
+
+      return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
+    }).then(([nowPlayingFormatted, nowPlaying]) => {
+      return outputFileData(nowPlayingFormatted)
+        .then(() => { return [nowPlayingFormatted, nowPlaying] });
+    }).then(([nowPlayingFormatted, nowPlaying]) => {
+      setupProgressInterval();
+      setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
+    }).catch((error) => {
+      printError(error, 'retrieving now playing data from main thread', false);
+    });
 }
 
-async function outputFileData(trackData) {
-  // Format the data strings
-  const outputData = formatStrings.map((fileData) => {
-    return {
-      filename: fileData.filename,
-      data: processFormatString(fileData.formatString, trackData),
-    };
-  }).forEach((fileData) => {
-    return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' });
-  });
+function getNowPlayingData() {
+  if (typeof tokenError === 'undefined') {
+    // Get now playing data yay
+
+    return axios.get('https://api.spotify.com/v1/me/player', {
+      headers: {
+        Authorization: `${token_type} ${access_token}`,
+      },
+    }).then((response) => {
+      const resData = response.data;
+
+      return {
+        is_playing: resData.is_playing,
+        repeat_state: resData.repeat_state,
+        shuffle_state: resData.shuffle_state,
+
+        progress_ms: resData.progress_ms,
+
+        currently_playing_type: resData.currently_playing_type,
+        item: resData.item,
+      };
+    }).catch((error) => {
+      printError(error, 'retrieving now playing data from api', false);
+    });
+  } else {
+    printError(`Error code ${tokenError} encountered.`, 'retrieving access token', true);
+  }
 }
 
 
 /**
-    Utility Functions
+    Auth Functions
 */
-
-function shutdown() {
-  console.log('Shutting down...');
-  server.close(() => {
-    process.exit();
-  });
-}
-
-// Open browser tab with URI
-async function openURI(uri) {
-  // Open URI with browser to get user auth tokens
-  await open(uri, {
-    url: true,
-  });
-}
 
 // Generate the initial authorization URI
 function generateAuthURI() {
@@ -189,39 +203,123 @@ async function requestNewAccessToken(reqData) {
   });
 }
 
-function printError(error, action, madagascar) {
-  if (action) {
-    console.log(error);
-    console.log(`Error when ${action}! Please submit above error in a GitHub issue at ${repoURI}.`)
-  } else {
-    console.log(error);
-    console.log(`Error! Please submit above error in a GitHub issue at ${repoURI}.`)
+
+/**
+    Timer/Interval Functions
+*/
+
+function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
+  const currentTrackData = nowPlayingFormatted.track;
+  const previousTrackData = typeof previousPlayingFormatted === 'undefined' ? undefined : previousPlayingFormatted.track;
+
+  // Clear end of song timeout when song changes
+  if (typeof previousTrackData !== 'undefined' &&
+    (currentTrackData.title !== previousTrackData.title ||
+      currentTrackData.artist !== previousTrackData.artist ||
+      currentTrackData.album !== previousTrackData.album)) {
+    clearTimeout(endOfSongTimeoutID);
+    endOfSongTimeoutID = undefined;
   }
 
-  if (madagascar) {
-    shutdown();
-  } else {
-    console.log('If this error loops, press Ctrl-C to close application.');
+  // Set up new end of song timeout
+  if (typeof endOfSongTimeoutID === 'undefined') {
+    endOfSongTimeoutID = setTimeout(() => {
+      return getNowPlayingData()
+        .then((nowPlaying) => {
+          return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
+        }).then(([nowPlayingFormatted, nowPlaying]) => {
+          return outputFileData(nowPlayingFormatted)
+            .then(() => { return [nowPlayingFormatted, nowPlaying] });
+        }).catch((error) => {
+          printError(error, 'retrieving now playing data from end of song', false);
+        });
+    }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
+
+    previousPlayingFormatted = nowPlayingFormatted;
   }
+}
+
+async function setupProgressInterval() {
+  const delay = 1000 - (trackProgress % 1000);
+  clearTimeout(trackProgressTimeoutID);
+
+  trackProgressTimeoutID = setTimeout(() => {
+    clearInterval(trackProgressIntervalID);
+
+    trackProgressIntervalID = setInterval(() => {
+      return updateTrackProgress();
+    }, 1000);
+
+    return updateTrackProgress();
+  }, delay < 1000 ? delay : 0);
+}
+
+async function updateTrackProgress() {
+  if (typeof previousPlayingFormatted !== 'undefined') {
+    const newUpdateTime = Date.now();
+    trackProgress += newUpdateTime - trackProgressLastUpdate;
+    previousPlayingFormatted.progress_ms = trackProgress;
+    previousPlayingFormatted.progress = formatTimeMS(trackProgress);
+    trackProgressLastUpdate = newUpdateTime;
+
+    return outputFileData(previousPlayingFormatted);
+  }
+}
+
+function setupRefreshTimeout() {
+  // Timer for refreshing access token 10 seconds before it expires
+  setTimeout(() => {
+    const reqData = {
+      grant_type: 'refresh_token',
+      refresh_token: refresh_token,
+      client_id: client_id,
+    };
+
+    return requestNewAccessToken(reqData)
+      .then((resData) => {
+        if (resData.status === 200) {
+          access_token = resData.access_token;
+          token_type = resData.token_type;
+          expires_in = resData.expires_in;
+          refresh_token = resData.refresh_token;
+
+
+          // Start another timeout so we can refresh again later
+          setupRefreshTimeout();
+        } else {
+          tokenError = resData.status;
+        }
+      });
+  }, (expires_in - 10) * 1000);
+}
+
+
+/**
+    File Functions
+*/
+
+function createOutputDir() {
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir);
+  }
+}
+
+async function outputFileData(trackData) {
+  // Format the data strings
+  const outputData = formatStrings.map((fileData) => {
+    return {
+      filename: fileData.filename,
+      data: processFormatString(fileData.formatString, trackData),
+    };
+  }).forEach((fileData) => {
+    return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' });
+  });
 }
 
 
 /**
     Formatting Functions
 */
-
-function getTrackLength(track, progress_ms = 0) {
-  if (typeof track === 'object') {
-    // Assume it's actually a track or episode
-    return track.duration_ms
-  } else if (track === 'ad') {
-    return 30 * 1000;
-  } else if (track === 'unknown') {
-    return progress_ms;
-  } else {
-    return 0;
-  }
-}
 
 function formatTimeMS(ms) {
   let progress = Math.floor(ms / 1000);
@@ -322,138 +420,50 @@ function processFormatString(formatString, nowPlayingData) {
 
 
 /**
-    Timer Functions
+    Utility Functions
 */
 
-function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
-  const currentTrackData = nowPlayingFormatted.track;
-  const previousTrackData = typeof previousPlayingFormatted === 'undefined' ? undefined : previousPlayingFormatted.track;
-
-  // Clear end of song timeout when song changes
-  if (typeof previousTrackData !== 'undefined' &&
-    (currentTrackData.title !== previousTrackData.title ||
-      currentTrackData.artist !== previousTrackData.artist ||
-      currentTrackData.album !== previousTrackData.album)) {
-    clearTimeout(endOfSongTimeoutID);
-    endOfSongTimeoutID = undefined;
-  }
-
-  // Set up new end of song timeout
-  if (typeof endOfSongTimeoutID === 'undefined') {
-    endOfSongTimeoutID = setTimeout(() => {
-      return getNowPlayingData()
-        .then((nowPlaying) => {
-          return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
-        }).then(([nowPlayingFormatted, nowPlaying]) => {
-          return outputFileData(nowPlayingFormatted)
-            .then(() => { return [nowPlayingFormatted, nowPlaying] });
-        }).catch((error) => {
-          printError(error, 'retrieving now playing data from end of song', false);
-        });
-    }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
-
-    previousPlayingFormatted = nowPlayingFormatted;
-  }
+function shutdown() {
+  console.log('Shutting down...');
+  server.close(() => {
+    process.exit();
+  });
 }
 
-async function setupProgressInterval() {
-  const delay = 1000 - (trackProgress % 1000);
-  clearTimeout(trackProgressTimeoutID);
-
-  trackProgressTimeoutID = setTimeout(() => {
-    clearInterval(trackProgressIntervalID);
-
-    trackProgressIntervalID = setInterval(() => {
-      return updateTrackProgress();
-    }, 1000);
-
-    return updateTrackProgress();
-  }, delay < 1000 ? delay : 0);
+// Open browser tab with URI
+async function openURI(uri) {
+  // Open URI with browser to get user auth tokens
+  await open(uri, {
+    url: true,
+  });
 }
 
-async function updateTrackProgress() {
-  if (typeof previousPlayingFormatted !== 'undefined') {
-    const newUpdateTime = Date.now();
-    trackProgress += newUpdateTime - trackProgressLastUpdate;
-    previousPlayingFormatted.progress_ms = trackProgress;
-    previousPlayingFormatted.progress = formatTimeMS(trackProgress);
-    trackProgressLastUpdate = newUpdateTime;
-
-    return outputFileData(previousPlayingFormatted);
-  }
-}
-
-function setupRefreshTimeout() {
-  // Timer for refreshing access token 10 seconds before it expires
-  setTimeout(() => {
-    const reqData = {
-      grant_type: 'refresh_token',
-      refresh_token: refresh_token,
-      client_id: client_id,
-    };
-
-    return requestNewAccessToken(reqData)
-      .then((resData) => {
-        if (resData.status === 200) {
-          access_token = resData.access_token;
-          token_type = resData.token_type;
-          expires_in = resData.expires_in;
-          refresh_token = resData.refresh_token;
-
-
-          // Start another timeout so we can refresh again later
-          setupRefreshTimeout();
-        } else {
-          tokenError = resData.status;
-        }
-      });
-  }, (expires_in - 10) * 1000);
-}
-
-async function getNowPlayingCallStack() {
-  return getNowPlayingData()
-    .then((nowPlaying) => {
-      trackProgress = nowPlaying.progress_ms;
-      trackProgressLastUpdate = Date.now();
-
-      return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
-    }).then(([nowPlayingFormatted, nowPlaying]) => {
-      return outputFileData(nowPlayingFormatted)
-        .then(() => { return [nowPlayingFormatted, nowPlaying] });
-    }).then(([nowPlayingFormatted, nowPlaying]) => {
-      setupProgressInterval();
-      setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
-    }).catch((error) => {
-      printError(error, 'retrieving now playing data from main thread', false);
-    });
-}
-
-function getNowPlayingData() {
-  if (typeof tokenError === 'undefined') {
-    // Get now playing data yay
-
-    return axios.get('https://api.spotify.com/v1/me/player', {
-      headers: {
-        Authorization: `${token_type} ${access_token}`,
-      },
-    }).then((response) => {
-      const resData = response.data;
-
-      return {
-        is_playing: resData.is_playing,
-        repeat_state: resData.repeat_state,
-        shuffle_state: resData.shuffle_state,
-
-        progress_ms: resData.progress_ms,
-
-        currently_playing_type: resData.currently_playing_type,
-        item: resData.item,
-      };
-    }).catch((error) => {
-      printError(error, 'retrieving now playing data from api', false);
-    });
+function printError(error, action, madagascar) {
+  if (action) {
+    console.log(error);
+    console.log(`Error when ${action}! Please submit above error in a GitHub issue at ${repoURI}.`)
   } else {
-    printError(`Error code ${tokenError} encountered.`, 'retrieving access token', true);
+    console.log(error);
+    console.log(`Error! Please submit above error in a GitHub issue at ${repoURI}.`)
+  }
+
+  if (madagascar) {
+    shutdown();
+  } else {
+    console.log('If this error loops, press Ctrl-C to close application.');
+  }
+}
+
+function getTrackLength(track, progress_ms = 0) {
+  if (typeof track === 'object') {
+    // Assume it's actually a track or episode
+    return track.duration_ms
+  } else if (track === 'ad') {
+    return 30 * 1000;
+  } else if (track === 'unknown') {
+    return progress_ms;
+  } else {
+    return 0;
   }
 }
 
