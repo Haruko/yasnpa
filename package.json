@@ -3,9 +3,13 @@
   "version": "0.0.1",
   "description": "Yet Another Spotify Now Playing App",
   "main": "index.js",
+  "bin": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npm run build-exec && npm run copy-config && npm run copy-dep",
+    "build-exec": "pkg -t latest-win --out-path \"./bin/\" ./package.json",
+    "copy-config": "copy \".\\config.js\" \"./bin/\"",
+    "copy-dep": "copy \".\\node_modules\\open\\xdg-open\" \"./bin/\""
   },
   "repository": {
     "type": "git",
@@ -28,5 +32,10 @@
     "open": "^7.1.0",
     "pkce": "^1.0.0-beta2",
     "querystring": "^0.2.0"
+  },
+  "pkg": {
+    "assets": [
+      "./public/*"
+    ]
   }
 }

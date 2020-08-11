@@ -6,14 +6,16 @@ const pkce = require('pkce');
 const qs = require('querystring');
 const fs = require('fs-extra');
 
+const dirname = path.dirname(process.execPath);
 
 /**
     Config
 */
 
-const configData = require('./config.js');
+const configData = require(path.join(dirname, 'config.js'));
 
-const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? __dirname : dir);
+const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
+const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? dirname : dir);
 const outputDir = path.join(...outputDirArray);
 const formatStrings = configData.formatStrings;
 
@@ -36,7 +38,6 @@ const state = pkce.createChallenge(); // Too lazy to make my own random stuff
 // Generate Code Verifier and Code Challenge
 const codePair = pkce.create();
 
-const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
 
 let server,
   accessToken,
@@ -339,12 +340,12 @@ async function outputFileData(trackData) {
 
 async function storeRefreshToken(refresh_token) {
   if (typeof refresh_token !== 'undefined') {
-    return fs.writeFile(path.join(__dirname, 'refreshtoken'), refresh_token, { flag: 'w' });
+    return fs.writeFile(path.join(dirname, 'refreshtoken'), refresh_token, { flag: 'w' });
   }
 }
 
 function checkForRefreshToken() {
-  const filePath = path.join(__dirname, 'refreshtoken');
+  const filePath = path.join(dirname, 'refreshtoken');
   const fileExists = fs.existsSync(filePath);
 
   if (fileExists) {
