@@ -116,6 +116,7 @@ async function getNowPlayingCallStack() {
     }).then(([nowPlayingFormatted, nowPlaying]) => {
       setupProgressInterval();
       setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
+      previousPlayingFormatted = nowPlayingFormatted;
     }).catch((error) => {
       console.log(`Error "${error}" when retrieving now playing data from main thread!`);
     });
@@ -247,8 +248,6 @@ function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
           console.log(`Error "${error}" when retrieving now playing data from end of song!`);
         });
     }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
-
-    previousPlayingFormatted = nowPlayingFormatted;
   }
 }
 
@@ -268,7 +267,7 @@ async function setupProgressInterval() {
 }
 
 async function updateTrackProgress() {
-  if (typeof previousPlayingFormatted !== 'undefined') {
+  if (typeof previousPlayingFormatted !== 'undefined' && !previousPlayingFormatted.is_paused) {
     const newUpdateTime = Date.now();
     trackProgress += newUpdateTime - trackProgressLastUpdate;
     previousPlayingFormatted.progress_ms = trackProgress;
