@@ -5,6 +5,7 @@ const axios = require('axios');
 const pkce = require('pkce');
 const qs = require('querystring');
 const fs = require('fs-extra');
+const JSON5 = require('json5');
 
 const dirname = path.dirname(process.execPath);
 
@@ -12,7 +13,9 @@ const dirname = path.dirname(process.execPath);
     Config
 */
 
-const configData = require(path.join(dirname, 'config.js'));
+// const configData = require(path.join(dirname, 'config.js'));
+
+const configData = JSON5.parse(fs.readFileSync(path.join(dirname, 'config.json')));
 
 const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
 const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? dirname : dir);

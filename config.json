@@ -1,4 +1,4 @@
-module.exports = {
+{
   /*
     Add [{CURRENT_DIR}] to get the current directory
     Separate nested directories into array elements
