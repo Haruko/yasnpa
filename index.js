@@ -38,11 +38,12 @@ const codePair = pkce.create();
 
 const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
 
-let accessToken,
+let server,
+  accessToken,
   tokenType,
   expiresIn,
   refreshToken,
-  tokenError,
+  refreshTokenTimeoutID,
   nowPlayingIntervalID,
   endOfSongTimeoutID,
   trackProgressIntervalID,
@@ -64,8 +65,9 @@ app.get('/cb', (req, res) => {
   const authCode = req.query.code;
   const authError = req.query.error;
 
-  if (state !== authState || typeof(authError) !== 'undefined') {
+  if (state !== authState || typeof authError !== 'undefined') {
     sendPublicFile(res, 'error.html');
+    shutdown();
   } else {
     const reqData = {
       client_id: client_id,
@@ -75,32 +77,19 @@ app.get('/cb', (req, res) => {
       code_verifier: codePair.codeVerifier,
     };
 
-    return requestNewAccessToken(reqData).then((resData) => {
-      if (resData.status === 200) {
-        sendPublicFile(res, 'success.html');
-        return resData;
-      } else {
-        sendPublicFile(res, 'error.html');
-        throw 'Error requesting access token.';
-      }
-    }).then((data) => {
-      accessToken = data.access_token;
-      tokenType = data.token_type;
-      expiresIn = data.expires_in;
-      refreshToken = data.refresh_token;
-
-      setupRefreshTimeout();
-
-      // Timer for getting now playing data
-      return getNowPlayingCallStack()
-        .then(() => {
-          nowPlayingIntervalID = setInterval(() => {
-            getNowPlayingCallStack();
-          }, apiCallDelay * 1000);
-        });
-    }).catch((error) => {
-      printError(error, 'requesting access token from callback', true);
-    });
+    return requestNewAccessToken(reqData)
+      .then((resData) => {
+        if (resData.status === 200) {
+          sendPublicFile(res, 'success.html');
+          return tokenHandler(resData);
+        } else {
+          sendPublicFile(res, 'error.html');
+          throw 'Error requesting access token.';
+        }
+      }).catch((error) => {
+        console.log(`Error "${error}" when processing callback!`);
+        shutdown();
+      });
   }
 });
 
@@ -128,37 +117,31 @@ async function getNowPlayingCallStack() {
       setupProgressInterval();
       setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
     }).catch((error) => {
-      printError(error, 'retrieving now playing data from main thread', false);
+      console.log(`Error "${error}" when retrieving now playing data from main thread!`);
     });
 }
 
 function getNowPlayingData() {
-  if (typeof tokenError === 'undefined') {
-    // Get now playing data yay
+  return axios.get('https://api.spotify.com/v1/me/player', {
+    headers: {
+      Authorization: `${tokenType} ${accessToken}`,
+    },
+  }).then((response) => {
+    const resData = response.data;
 
-    return axios.get('https://api.spotify.com/v1/me/player', {
-      headers: {
-        Authorization: `${tokenType} ${accessToken}`,
-      },
-    }).then((response) => {
-      const resData = response.data;
+    return {
+      is_playing: resData.is_playing,
+      repeat_state: resData.repeat_state,
+      shuffle_state: resData.shuffle_state,
 
-      return {
-        is_playing: resData.is_playing,
-        repeat_state: resData.repeat_state,
-        shuffle_state: resData.shuffle_state,
+      progress_ms: resData.progress_ms,
 
-        progress_ms: resData.progress_ms,
-
-        currently_playing_type: resData.currently_playing_type,
-        item: resData.item,
-      };
-    }).catch((error) => {
-      printError(error, 'retrieving now playing data from api', false);
-    });
-  } else {
-    printError(`Error code ${tokenError} encountered.`, 'retrieving access token', true);
-  }
+      currently_playing_type: resData.currently_playing_type,
+      item: resData.item,
+    };
+  }).catch((error) => {
+    console.log(`Error "${error}" when retrieving now playing data from api!`);
+  });
 }
 
 
@@ -185,26 +168,52 @@ function generateAuthURI() {
 }
 
 async function requestNewAccessToken(reqData) {
-  return axios.post(spotifyTokenURI, qs.stringify(reqData)).then((response) => {
-    if (response.status === 200) {
-      let { access_token, token_type, scope, expires_in, refresh_token } = response.data;
+  return axios.post(spotifyTokenURI, qs.stringify(reqData))
+    .then((response) => {
+      if (response.status === 200) {
+        let { access_token, token_type, scope, expires_in, refresh_token } = response.data;
 
-      return storeRefreshToken(refresh_token)
-        .then(() => {
-          return {
-            status: response.status,
-            access_token: access_token,
-            token_type: token_type,
-            expires_in: expires_in,
-            refresh_token: refresh_token,
-          };
-        });
-    } else {
-      return {
-        status: response.status,
-      };
-    }
-  });
+        return storeRefreshToken(refresh_token)
+          .catch((error) => {
+            console.log(`Error "${error}" when storing refresh token!`);
+          }).then(() => {
+            return {
+              status: response.status,
+              access_token: access_token,
+              token_type: token_type,
+              expires_in: expires_in,
+              refresh_token: refresh_token,
+            };
+          });
+      } else {
+        return {
+          status: response.status,
+        };
+      }
+    });
+}
+
+async function tokenHandler(data) {
+  console.log('Authorization successful.');
+  accessToken = data.access_token;
+  tokenType = data.token_type;
+  expiresIn = data.expires_in;
+  refreshToken = data.refresh_token;
+
+  setupRefreshTimeout();
+
+  // Timer for getting now playing data
+  return getNowPlayingCallStack()
+    .then(() => {
+      clearInterval(nowPlayingIntervalID);
+
+      nowPlayingIntervalID = setInterval(() => {
+        getNowPlayingCallStack();
+      }, apiCallDelay * 1000);
+    }).catch((error) => {
+      console.log('Error in token handler!');
+      throw error;
+    });
 }
 
 
@@ -235,7 +244,7 @@ function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
           return outputFileData(nowPlayingFormatted)
             .then(() => { return [nowPlayingFormatted, nowPlaying] });
         }).catch((error) => {
-          printError(error, 'retrieving now playing data from end of song', false);
+          console.log(`Error "${error}" when retrieving now playing data from end of song!`);
         });
     }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
 
@@ -272,7 +281,9 @@ async function updateTrackProgress() {
 
 function setupRefreshTimeout() {
   // Timer for refreshing access token 10 seconds before it expires
-  setTimeout(() => {
+  clearTimeout(refreshTokenTimeoutID);
+
+  refreshTokenTimeoutID = setTimeout(() => {
     const reqData = {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
@@ -291,8 +302,12 @@ function setupRefreshTimeout() {
           // Start another timeout so we can refresh again later
           setupRefreshTimeout();
         } else {
-          tokenError = resData.status;
+          throw resData.status;
         }
+      }).catch((error) => {
+        console.log(`Error ${error} when retrieving access token!` +
+          'Please delete the "refreshtoken" file if it exists and restart the application.');
+        shutdown();
       });
   }, (expiresIn - 10) * 1000);
 }
@@ -302,27 +317,46 @@ function setupRefreshTimeout() {
     File Functions
 */
 
-function createOutputDir() {
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-}
-
 async function outputFileData(trackData) {
   // Format the data strings
-  const outputData = formatStrings.map((fileData) => {
-    return {
-      filename: fileData.filename,
-      data: processFormatString(fileData.formatString, trackData),
-    };
-  }).forEach((fileData) => {
-    return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' });
-  });
+  return fs.ensureDir(outputDir)
+    .catch((error) => {
+      console.log(`Error "${error}" when creating directory!`);
+      shutdown();
+    }).then(() => {
+      const outputData = formatStrings.map((fileData) => {
+        return {
+          filename: fileData.filename,
+          data: processFormatString(fileData.formatString, trackData),
+        };
+      }).forEach((fileData) => {
+        return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' })
+          .catch((error) => {
+            console.log(`Error "${error} when writing to file "${fileData.filename}"!`);
+          });
+      });
+    });
 }
 
 async function storeRefreshToken(refresh_token) {
   if (typeof refresh_token !== 'undefined') {
     return fs.writeFile(path.join(__dirname, 'refreshtoken'), refresh_token, { flag: 'w' });
+  }
+}
+
+function checkForRefreshToken() {
+  const filePath = path.join(__dirname, 'refreshtoken');
+  const fileExists = fs.existsSync(filePath);
+
+  if (fileExists) {
+    const token = fs.readFileSync(filePath, { encoding: 'utf8' });
+
+    refreshToken = token;
+    expiresIn = 1;
+
+    return true;
+  } else {
+    return false;
   }
 }
 
@@ -435,9 +469,18 @@ function processFormatString(formatString, nowPlayingData) {
 
 function shutdown() {
   console.log('Shutting down...');
-  server.close(() => {
-    process.exit();
-  });
+
+  clearTimeout(refreshTokenTimeoutID);
+  clearTimeout(endOfSongTimeoutID);
+  clearTimeout(trackProgressTimeoutID);
+  clearInterval(nowPlayingIntervalID);
+  clearInterval(trackProgressIntervalID);
+
+  if (typeof server !== 'undefined') {
+    server.close(() => {
+      process.exit();
+    });
+  }
 }
 
 // Open browser tab with URI
@@ -446,22 +489,6 @@ async function openURI(uri) {
   await open(uri, {
     url: true,
   });
-}
-
-function printError(error, action, madagascar) {
-  if (action) {
-    console.log(error);
-    console.log(`Error when ${action}! Please submit above error in a GitHub issue at ${repoURI}.`)
-  } else {
-    console.log(error);
-    console.log(`Error! Please submit above error in a GitHub issue at ${repoURI}.`)
-  }
-
-  if (madagascar) {
-    shutdown();
-  } else {
-    console.log('If this error loops, press Ctrl-C to close application.');
-  }
 }
 
 function getTrackLength(track, progress_ms = 0) {
@@ -482,12 +509,29 @@ function getTrackLength(track, progress_ms = 0) {
     Start Here
 */
 
-const server = app.listen(port, () => {
-  console.log(`Please authorize YASNPA to access your Spotify currently playing data.`);
-});
+async function init() {
+  if (checkForRefreshToken()) {
+    console.log('Refresh token found.');
 
-createOutputDir();
+    const reqData = {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: client_id,
+    };
 
-(async () => {
-  openURI(generateAuthURI());
-})();
+    return requestNewAccessToken(reqData)
+      .then((data) => tokenHandler(data))
+      .catch((error) => {
+        console.log(`Error "${error}" in init!`);
+        shutdown();
+      });
+  } else {
+    server = app.listen(port, () => {
+      console.log('Please authorize YASNPA to access your Spotify currently playing data.');
+    });
+
+    return openURI(generateAuthURI());
+  }
+}
+
+init();
