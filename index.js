@@ -12,6 +12,7 @@ const fs = require('fs-extra');
 */
 
 const outputDir = path.join(__dirname, 'output');
+const apiCallDelay = 10;
 
 /*
   List of file outputs with string formats
@@ -41,14 +42,25 @@ const port = 9753;
 const redirect_uri = `http://localhost:${port}/cb`;
 const scope = 'user-read-playback-state';
 
-const spotifyAuthURI = 'https://accounts.spotify.com/authorize?';
+const spotifyAuthURI = 'https://accounts.spotify.com/authorize';
 const spotifyTokenURI = 'https://accounts.spotify.com/api/token';
 
 const state = pkce.createChallenge(); // Too lazy to make my own random stuff
 // Generate Code Verifier and Code Challenge
 const codePair = pkce.create();
 
-let access_token, token_type, expires_in, refresh_token, tokenError, tokenIntervalID;
+let access_token,
+  token_type,
+  expires_in,
+  refresh_token,
+  tokenError,
+  nowPlayingIntervalID,
+  endOfSongTimeoutID,
+  trackProgressIntervalID,
+  trackProgressTimeoutID,
+  trackProgress,
+  trackProgressLastUpdate,
+  previousPlayingFormatted;
 
 /**
     Express Functions
@@ -90,20 +102,14 @@ app.get('/cb', (req, res) => {
       setupRefreshTimeout();
 
       // Timer for getting now playing data
-      tokenIntervalID = setInterval(() => {
-        return getNowPlayingData()
-          .then((nowPlaying) => {
-            return formatNowPlayingDataObject(nowPlaying);
-          }).then((nowPlaying) => {
-            return outputFileData(nowPlaying);
-          }).catch((error) => {
-            // console.log(error);
-            console.log('Error occurred in retrieving now playing data.');
-            shutdown();
-          });
-      }, 1 * 1000);
+      return getNowPlayingCallStack()
+        .then(() => {
+          nowPlayingIntervalID = setInterval(() => {
+            getNowPlayingCallStack();
+          }, apiCallDelay * 1000);
+        });
     }).catch((error) => {
-      // console.log(error);
+      console.log(error);
       console.log('Error occurred in retrieving response data.');
       shutdown();
     });
@@ -143,7 +149,6 @@ async function outputFileData(trackData) {
 */
 
 function shutdown() {
-  clearInterval(tokenIntervalID);
   server.close(() => {
     process.exit();
   });
@@ -163,7 +168,7 @@ function generateAuthURI() {
   const code_challenge_method = 'S256';
   const code_challenge = codePair.codeChallenge;
 
-  const authURI = spotifyAuthURI +
+  const authURI = spotifyAuthURI + '?' +
     `client_id=${client_id}&` +
     `response_type=${response_type}&` +
     `redirect_uri=${redirect_uri}&` +
@@ -199,6 +204,19 @@ async function requestNewAccessToken(reqData) {
     Formatting Functions
 */
 
+function getTrackLength(track, progress_ms = 0) {
+  if (typeof track === 'object') {
+    // Assume it's actually a track or episode
+    return track.duration_ms
+  } else if (track === 'ad') {
+    return 30 * 1000;
+  } else if (track === 'unknown') {
+    return progress_ms;
+  } else {
+    return 0;
+  }
+}
+
 function formatTimeMS(ms) {
   let progress = Math.floor(ms / 1000);
   const progressHours = Math.floor(progress / 3600);
@@ -221,6 +239,7 @@ function formatNowPlayingDataObject(data) {
 
     track: null,
     progress: formatTimeMS(data.progress_ms),
+    progress_ms: data.progress_ms,
   };
 
   // Deal with track
@@ -236,9 +255,10 @@ function formatNowPlayingDataObject(data) {
         title: item.name,
         artist: item.artists.map((artist) => artist.name).join(', '),
         album: item.album.name,
-        duration: formatTimeMS(item.duration_ms),
+        duration: formatTimeMS(getTrackLength(item)),
+        duration_ms: item.duration_ms,
         image: item.album.images[0] ? item.album.images[0].url : null,
-      }
+      };
 
       break;
     case 'episode':
@@ -246,9 +266,10 @@ function formatNowPlayingDataObject(data) {
         title: item.name,
         artist: item.show.name,
         album: null,
-        duration: formatTimeMS(item.duration_ms),
+        duration: formatTimeMS(getTrackLength(item)),
+        duration_ms: item.duration_ms,
         image: item.images[0] ? item.images[0].url : null,
-      }
+      };
 
       break;
     case 'ad':
@@ -256,9 +277,10 @@ function formatNowPlayingDataObject(data) {
         title: 'Advertisement',
         artist: null,
         album: null,
-        duration: null,
+        duration: formatTimeMS(getTrackLength('ad')),
+        duration_ms: getTrackLength('ad'),
         image: null,
-      }
+      };
 
       break;
     case 'unknown':
@@ -267,9 +289,10 @@ function formatNowPlayingDataObject(data) {
         title: 'Unknown',
         artist: null,
         album: null,
-        duration: null,
+        duration: formatTimeMS(getTrackLength('unknown', data.progress_ms)),
+        duration_ms: getTrackLength('unknown', data.progress_ms),
         image: null,
-      }
+      };
 
       break;
   }
@@ -294,6 +317,66 @@ function processFormatString(formatString, nowPlayingData) {
 /**
     Timer Functions
 */
+
+function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
+  const currentTrackData = nowPlayingFormatted.track;
+  const previousTrackData = typeof previousPlayingFormatted === 'undefined' ? undefined : previousPlayingFormatted.track;
+
+  // Clear end of song timeout when song changes
+  if (typeof previousTrackData !== 'undefined' &&
+    (currentTrackData.title !== previousTrackData.title ||
+      currentTrackData.artist !== previousTrackData.artist ||
+      currentTrackData.album !== previousTrackData.album)) {
+    clearTimeout(endOfSongTimeoutID);
+    endOfSongTimeoutID = undefined;
+  }
+
+  // Set up new end of song timeout
+  if (typeof endOfSongTimeoutID === 'undefined') {
+    endOfSongTimeoutID = setTimeout(() => {
+      return getNowPlayingData()
+        .then((nowPlaying) => {
+          return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
+        }).then(([nowPlayingFormatted, nowPlaying]) => {
+          return outputFileData(nowPlayingFormatted)
+            .then(() => { return [nowPlayingFormatted, nowPlaying] });
+        }).catch((error) => {
+          console.log(error);
+          console.log('Error occurred in retrieving now playing data.');
+          shutdown();
+        });
+    }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
+
+    previousPlayingFormatted = nowPlayingFormatted;
+  }
+}
+
+async function setupProgressInterval() {
+  const delay = 1000 - (trackProgress % 1000);
+  clearTimeout(trackProgressTimeoutID);
+
+  trackProgressTimeoutID = setTimeout(() => {
+    clearInterval(trackProgressIntervalID);
+
+    trackProgressIntervalID = setInterval(() => {
+      return updateTrackProgress();
+    }, 1000);
+
+    return updateTrackProgress();
+  }, delay < 1000 ? delay : 0);
+}
+
+async function updateTrackProgress() {
+  if (typeof previousPlayingFormatted !== 'undefined') {
+    const newUpdateTime = Date.now();
+    trackProgress += newUpdateTime - trackProgressLastUpdate;
+    previousPlayingFormatted.progress_ms = trackProgress;
+    previousPlayingFormatted.progress = formatTimeMS(trackProgress);
+    trackProgressLastUpdate = newUpdateTime;
+
+    return outputFileData(previousPlayingFormatted);
+  }
+}
 
 function setupRefreshTimeout() {
   // Timer for refreshing access token 10 seconds before it expires
@@ -320,6 +403,26 @@ function setupRefreshTimeout() {
         }
       });
   }, (expires_in - 10) * 1000);
+}
+
+async function getNowPlayingCallStack() {
+  return getNowPlayingData()
+    .then((nowPlaying) => {
+      trackProgress = nowPlaying.progress_ms;
+      trackProgressLastUpdate = Date.now();
+
+      return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
+    }).then(([nowPlayingFormatted, nowPlaying]) => {
+      return outputFileData(nowPlayingFormatted)
+        .then(() => { return [nowPlayingFormatted, nowPlaying] });
+    }).then(([nowPlayingFormatted, nowPlaying]) => {
+      setupProgressInterval();
+      setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
+    }).catch((error) => {
+      console.log(error);
+      console.log('Error occurred in retrieving now playing data.');
+      shutdown();
+    });
 }
 
 function getNowPlayingData() {
