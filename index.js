@@ -6,12 +6,12 @@ const pkce = require('pkce');
 const qs = require('querystring');
 const fs = require('fs-extra');
 
-const configData = require('./config.js');
-
 
 /**
     Config
 */
+
+const configData = require('./config.js');
 
 const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? __dirname : dir);
 const outputDir = path.join(...outputDirArray);
@@ -38,10 +38,10 @@ const codePair = pkce.create();
 
 const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
 
-let access_token,
-  token_type,
-  expires_in,
-  refresh_token,
+let accessToken,
+  tokenType,
+  expiresIn,
+  refreshToken,
   tokenError,
   nowPlayingIntervalID,
   endOfSongTimeoutID,
@@ -84,10 +84,10 @@ app.get('/cb', (req, res) => {
         throw 'Error requesting access token.';
       }
     }).then((data) => {
-      access_token = data.access_token;
-      token_type = data.token_type;
-      expires_in = data.expires_in;
-      refresh_token = data.refresh_token;
+      accessToken = data.access_token;
+      tokenType = data.token_type;
+      expiresIn = data.expires_in;
+      refreshToken = data.refresh_token;
 
       setupRefreshTimeout();
 
@@ -138,7 +138,7 @@ function getNowPlayingData() {
 
     return axios.get('https://api.spotify.com/v1/me/player', {
       headers: {
-        Authorization: `${token_type} ${access_token}`,
+        Authorization: `${tokenType} ${accessToken}`,
       },
     }).then((response) => {
       const resData = response.data;
@@ -188,13 +188,17 @@ async function requestNewAccessToken(reqData) {
   return axios.post(spotifyTokenURI, qs.stringify(reqData)).then((response) => {
     if (response.status === 200) {
       let { access_token, token_type, scope, expires_in, refresh_token } = response.data;
-      return {
-        status: response.status,
-        access_token: access_token,
-        token_type: token_type,
-        expires_in: expires_in,
-        refresh_token: refresh_token,
-      }
+
+      return storeRefreshToken(refresh_token)
+        .then(() => {
+          return {
+            status: response.status,
+            access_token: access_token,
+            token_type: token_type,
+            expires_in: expires_in,
+            refresh_token: refresh_token,
+          };
+        });
     } else {
       return {
         status: response.status,
@@ -271,17 +275,17 @@ function setupRefreshTimeout() {
   setTimeout(() => {
     const reqData = {
       grant_type: 'refresh_token',
-      refresh_token: refresh_token,
+      refresh_token: refreshToken,
       client_id: client_id,
     };
 
     return requestNewAccessToken(reqData)
       .then((resData) => {
         if (resData.status === 200) {
-          access_token = resData.access_token;
-          token_type = resData.token_type;
-          expires_in = resData.expires_in;
-          refresh_token = resData.refresh_token;
+          accessToken = resData.access_token;
+          tokenType = resData.token_type;
+          expiresIn = resData.expires_in;
+          refreshToken = resData.refresh_token;
 
 
           // Start another timeout so we can refresh again later
@@ -290,7 +294,7 @@ function setupRefreshTimeout() {
           tokenError = resData.status;
         }
       });
-  }, (expires_in - 10) * 1000);
+  }, (expiresIn - 10) * 1000);
 }
 
 
@@ -314,6 +318,12 @@ async function outputFileData(trackData) {
   }).forEach((fileData) => {
     return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' });
   });
+}
+
+async function storeRefreshToken(refresh_token) {
+  if (typeof refresh_token !== 'undefined') {
+    return fs.writeFile(path.join(__dirname, 'refreshtoken'), refresh_token, { flag: 'w' });
+  }
 }
 
 
