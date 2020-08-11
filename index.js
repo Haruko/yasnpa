@@ -6,32 +6,17 @@ const pkce = require('pkce');
 const qs = require('querystring');
 const fs = require('fs-extra');
 
+const configData = require('./config.js');
+
 
 /**
     Config
 */
 
-const outputDir = path.join(__dirname, 'output');
-const apiCallDelay = 10;
+const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? __dirname : dir);
+const outputDir = path.join(...outputDirArray);
+const formatStrings = configData.formatStrings;
 
-/*
-  List of file outputs with string formats
-  
-  List of usable variables:
-    [{TITLE}] - Track title
-    [{ARTIST}] - Track artists separated by commas
-    [{ALBUM}] - Track album
-    [{LENGTH}] - Length of track
-    [{PROGRESS}] - Current playback progress
-*/
-
-const formatStrings = [{
-  filename: 'trackinfo.txt',
-  formatString: `[{ARTIST}] - [{TITLE}]`,
-}, {
-  filename: 'progress.txt',
-  formatString: `[{PROGRESS}] / [{LENGTH}]`,
-}];
 
 /**
     System Config
@@ -41,6 +26,8 @@ const client_id = '850dbd9b43904e2cb1bee51c7d88ff47';
 const port = 9753;
 const redirect_uri = `http://localhost:${port}/cb`;
 const scope = 'user-read-playback-state';
+
+const apiCallDelay = 10;
 
 const spotifyAuthURI = 'https://accounts.spotify.com/authorize';
 const spotifyTokenURI = 'https://accounts.spotify.com/api/token';
@@ -63,6 +50,7 @@ let access_token,
   trackProgress,
   trackProgressLastUpdate,
   previousPlayingFormatted;
+
 
 /**
     Express Functions
@@ -143,6 +131,7 @@ async function outputFileData(trackData) {
     return fs.writeFile(path.join(outputDir, fileData.filename), fileData.data, { flag: 'w' });
   });
 }
+
 
 /**
     Utility Functions
@@ -330,6 +319,7 @@ function processFormatString(formatString, nowPlayingData) {
 
   return formatString;
 }
+
 
 /**
     Timer Functions
