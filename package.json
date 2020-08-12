@@ -18,7 +18,7 @@
     "make-dir": "powershell md ./release -Force",
     "compress": "powershell Compress-Archive -Path ./bin/yasnpa -DestinationPath ./release/yasnpa%npm_package_version%.zip",
     
-    "clean": "powershell Remove-Item -Recurse ./bin, ./release"
+    "clean": "powershell Remove-Item -Recurse -Force ./bin, ./release"
   },
   "repository": {
     "type": "git",
