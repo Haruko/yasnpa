@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ZoeyBonaventura/yasnpa.git"
+    "url": "git+https://github.com/Haruko/yasnpa.git"
   },
   "keywords": [
     "Spotify",
@@ -31,9 +31,9 @@
   "author": "Isoitiro",
   "license": "GPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/ZoeyBonaventura/yasnpa/issues"
+    "url": "https://github.com/Haruko/yasnpa/issues"
   },
-  "homepage": "https://github.com/ZoeyBonaventura/yasnpa#readme",
+  "homepage": "https://github.com/Haruko/yasnpa#readme",
   "dependencies": {
     "axios": "^0.19.2",
     "express": "^4.17.1",
