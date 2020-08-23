@@ -50,12 +50,15 @@ let server,
   expiresIn,
   refreshToken,
   refreshTokenTimeoutID,
+
   nowPlayingIntervalID,
   endOfSongTimeoutID,
+
   trackProgressIntervalID,
   trackProgressTimeoutID,
   trackProgress,
   trackProgressLastUpdate,
+
   previousPlaying,
   previousPlayingFormatted,
   lastBookmarked;
@@ -119,10 +122,16 @@ async function getNowPlayingCallStack() {
         trackProgressLastUpdate = Date.now();
         nowPlayingFormatted = formatNowPlayingDataObject(nowPlaying);
 
-        setupProgressInterval();
-        setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
-        previousPlaying = nowPlaying;
-        previousPlayingFormatted = nowPlayingFormatted;
+        if (nowPlaying.item !== null) {
+          setupProgressInterval();
+          setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
+          previousPlaying = nowPlaying;
+          previousPlayingFormatted = nowPlayingFormatted;
+        } else {
+          clearTimeout(endOfSongTimeoutID);
+          clearTimeout(trackProgressTimeoutID);
+          clearInterval(trackProgressIntervalID);
+        }
 
         return outputFileData(nowPlayingFormatted);
       }
@@ -139,18 +148,33 @@ function getNowPlayingData() {
   }).then((response) => {
     const resData = response.data;
 
-    return {
-      is_playing: resData.is_playing,
-      repeat_state: resData.repeat_state,
-      shuffle_state: resData.shuffle_state,
+    // Spotify API returns 200 OK with empty string as data if the request was successful, but no devices are found.
+    if (resData === '') {
+      return {
+        is_playing: false,
+        repeat_state: 'off',
+        shuffle_state: false,
 
-      progress_ms: resData.progress_ms,
+        progress_ms: 0,
 
-      currently_playing_type: resData.currently_playing_type,
-      item: resData.item,
-    };
+        currently_playing_type: 'unknown',
+        item: null,
+      };
+    } else {
+      return {
+        is_playing: resData.is_playing,
+        repeat_state: resData.repeat_state,
+        shuffle_state: resData.shuffle_state,
+
+        progress_ms: resData.progress_ms,
+
+        currently_playing_type: resData.currently_playing_type,
+        item: resData.item,
+      };
+    }
   }).catch((error) => {
     console.log(`Error "${error}" when retrieving now playing data from api!`);
+    // console.log(error.response.headers);
   });
 }
 
@@ -204,7 +228,7 @@ async function requestNewAccessToken(reqData) {
 }
 
 async function tokenHandler(data) {
-  console.log('Authorization successful.' +
+  console.log('Authorization successful. ' +
     'To exit the application, press Ctrl-C or close the window.');
   accessToken = data.access_token;
   tokenType = data.token_type;
@@ -371,7 +395,7 @@ async function bookmarkNowPlaying() {
     const track = item.name;
     const url = item.external_urls.spotify;
     const bookmarkText = `"${artists.replace(/"/g, '""')}","${track.replace(/"/g, '""')}","${url.replace(/"/g, '""')}"\n`;
-    
+
     if (bookmarkText !== lastBookmarked) {
       await fs.writeFile(path.join(dirname, 'output', 'bookmarks.csv'), bookmarkText, { flag: 'a' });
       lastBookmarked = bookmarkText;
