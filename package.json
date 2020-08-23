@@ -1,24 +1,24 @@
 {
   "name": "yasnpa",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Yet Another Spotify Now Playing App",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {
-    "start": "npm run build && ./bin/yasnpa/yasnpa.exe",
+    "start": "npm run build && .\\bin\\yasnpa\\yasnpa.exe",
     
     "build": "npm run build-exec && npm run copy-sub",
-    "build-exec": "pkg -t latest-win --out-path ./bin/yasnpa/ ./package.json",
+    "build-exec": "pkg -t latest-win --out-path .\\bin\\yasnpa\\ .\\package.json",
     
     "copy-sub": "npm run copy-config && npm run copy-dep",
-    "copy-config": "powershell Copy-Item ./config.json ./bin/yasnpa/",
-    "copy-dep": "powershell Copy-Item ./node_modules/open/xdg-open ./bin/yasnpa/",
+    "copy-config": "powershell Copy-Item .\\config.json .\\bin\\yasnpa\\",
+    "copy-dep": "powershell Copy-Item .\\node_modules\\open\\xdg-open .\\bin\\yasnpa\\",
     
     "release": "npm run build && npm run make-dir && npm run compress",
-    "make-dir": "powershell md ./release -Force",
-    "compress": "powershell Compress-Archive -Path ./bin/yasnpa -DestinationPath ./release/yasnpa%npm_package_version%.zip",
+    "make-dir": "powershell md .\\release -Force",
+    "compress": "powershell Compress-Archive -Path .\\bin\\yasnpa -DestinationPath .\\release\\yasnpa%npm_package_version%.zip",
     
-    "clean": "powershell Remove-Item -Recurse -Force ./bin, ./release"
+    "clean": "powershell Remove-Item -Recurse -Force .\\bin, .\\release"
   },
   "repository": {
     "type": "git",

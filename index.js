@@ -19,6 +19,7 @@ const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
 const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? dirname : dir);
 const outputDir = path.join(...outputDirArray);
 const formatStrings = configData.formatStrings;
+const crossfade = configData.crossfade;
 
 
 /**
@@ -113,12 +114,11 @@ async function getNowPlayingCallStack() {
 
       return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
     }).then(([nowPlayingFormatted, nowPlaying]) => {
-      return outputFileData(nowPlayingFormatted)
-        .then(() => { return [nowPlayingFormatted, nowPlaying] });
-    }).then(([nowPlayingFormatted, nowPlaying]) => {
       setupProgressInterval();
       setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
       previousPlayingFormatted = nowPlayingFormatted;
+
+      return outputFileData(nowPlayingFormatted);
     }).catch((error) => {
       console.log(`Error "${error}" when retrieving now playing data from main thread!`);
     });
@@ -228,29 +228,16 @@ function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
   const currentTrackData = nowPlayingFormatted.track;
   const previousTrackData = typeof previousPlayingFormatted === 'undefined' ? undefined : previousPlayingFormatted.track;
 
-  // Clear end of song timeout when song changes
-  if (typeof previousTrackData !== 'undefined' &&
-    (currentTrackData.title !== previousTrackData.title ||
-      currentTrackData.artist !== previousTrackData.artist ||
-      currentTrackData.album !== previousTrackData.album)) {
-    clearTimeout(endOfSongTimeoutID);
-    endOfSongTimeoutID = undefined;
-  }
+  // Always reset timeout in case we skip ahead in the song
+  clearTimeout(endOfSongTimeoutID);
 
   // Set up new end of song timeout
-  if (typeof endOfSongTimeoutID === 'undefined') {
-    endOfSongTimeoutID = setTimeout(() => {
-      return getNowPlayingData()
-        .then((nowPlaying) => {
-          return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
-        }).then(([nowPlayingFormatted, nowPlaying]) => {
-          return outputFileData(nowPlayingFormatted)
-            .then(() => { return [nowPlayingFormatted, nowPlaying] });
-        }).catch((error) => {
-          console.log(`Error "${error}" when retrieving now playing data from end of song!`);
-        });
-    }, currentTrackData.duration_ms - nowPlaying.progress_ms + 25);
-  }
+  endOfSongTimeoutID = setTimeout(() => {
+    return getNowPlayingCallStack()
+      .catch((error) => {
+        console.log(`Error "${error}" when retrieving now playing data from end of song!`);
+      });
+  }, currentTrackData.duration_ms - nowPlaying.progress_ms - (crossfade * 1000) + 25);
 }
 
 async function setupProgressInterval() {
