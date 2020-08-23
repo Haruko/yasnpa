@@ -34,4 +34,17 @@
     Set this to the same value that you use in Spotify's settings. 
   */
   crossfade: 3,
+  
+  /*
+    Set hotkey to the values of a shortcut you would like to use to bookmark songs.
+    These songs are saved in a file called boomarks.csv in the same directory as YASNPA.
+    CSV files can be opened in Microsoft Excel, similar spreadsheet programs (potentially), or a text editor.
+    
+    hotkey should be in the form of [keycode1, keycode2] using the numbers given in keymap mode.
+    For example [54, 61010] is Right Shift + Insert on my system.
+    
+    Set keymapMode to true, run the application, and press desired keys to figure out what numbers to use.
+  */
+  keymapMode: false,
+  hotkey: [54, 61010],
 }

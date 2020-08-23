@@ -5,7 +5,8 @@ const axios = require('axios');
 const pkce = require('pkce');
 const qs = require('querystring');
 const fs = require('fs-extra');
-const JSON5 = require('json5');
+const json5 = require('json5');
+const iohook = require('iohook');
 
 const dirname = path.dirname(process.execPath);
 
@@ -13,13 +14,15 @@ const dirname = path.dirname(process.execPath);
     Config
 */
 
-const configData = JSON5.parse(fs.readFileSync(path.join(dirname, 'config.json')));
+const configData = json5.parse(fs.readFileSync(path.join(dirname, 'config.json')));
 
 const repoURI = 'https://github.com/ZoeyBonaventura/yasnpa';
 const outputDirArray = configData.outputDir.map((dir) => dir === '[{CURRENT_DIR}]' ? dirname : dir);
 const outputDir = path.join(...outputDirArray);
 const formatStrings = configData.formatStrings;
 const crossfade = configData.crossfade;
+const hotkey = configData.hotkey;
+const keymapMode = configData.keymapMode;
 
 
 /**
@@ -53,7 +56,9 @@ let server,
   trackProgressTimeoutID,
   trackProgress,
   trackProgressLastUpdate,
-  previousPlayingFormatted;
+  previousPlaying,
+  previousPlayingFormatted,
+  lastBookmarked;
 
 
 /**
@@ -116,6 +121,7 @@ async function getNowPlayingCallStack() {
 
         setupProgressInterval();
         setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
+        previousPlaying = nowPlaying;
         previousPlayingFormatted = nowPlayingFormatted;
 
         return outputFileData(nowPlayingFormatted);
@@ -198,11 +204,19 @@ async function requestNewAccessToken(reqData) {
 }
 
 async function tokenHandler(data) {
-  console.log('Authorization successful.');
+  console.log('Authorization successful.' +
+    'To exit the application, press Ctrl-C or close the window.');
   accessToken = data.access_token;
   tokenType = data.token_type;
   expiresIn = data.expires_in;
   refreshToken = data.refresh_token;
+
+  // Setup hotkeys
+  iohook.registerShortcut(hotkey, (keys) => {
+    return bookmarkNowPlaying();
+  });
+
+  iohook.start();
 
   setupRefreshTimeout();
 
@@ -346,6 +360,22 @@ function checkForRefreshToken() {
     return true;
   } else {
     return false;
+  }
+}
+
+async function bookmarkNowPlaying() {
+  if (typeof previousPlaying !== 'undefined') {
+    const item = previousPlaying.item;
+
+    const artists = item.artists.map((artist) => artist.name).join(', ');
+    const track = item.name;
+    const url = item.external_urls.spotify;
+    const bookmarkText = `"${artists.replace(/"/g, '""')}","${track.replace(/"/g, '""')}","${url.replace(/"/g, '""')}"\n`;
+    
+    if (bookmarkText !== lastBookmarked) {
+      await fs.writeFile(path.join(dirname, 'output', 'bookmarks.csv'), bookmarkText, { flag: 'a' });
+      lastBookmarked = bookmarkText;
+    }
   }
 }
 
@@ -527,4 +557,29 @@ async function init() {
   }
 }
 
-init();
+if (keymapMode) {
+  // Print out values for keypresses so users can figure out what numbers
+  let pressed = undefined;
+
+  iohook.on('keydown', (event) => {
+    if (typeof pressed !== 'undefined') {
+      return;
+    }
+
+    console.log(event.keycode);
+    pressed = event.keycode;
+  });
+
+  iohook.on('keyup', (event) => {
+    if (pressed === event.keycode) {
+      pressed = undefined;
+    }
+  });
+
+  console.log('Application is currently in keymap mode to allow you to find the correct numbers to use in your hotkey. ' +
+    'If you would like to run the application normally, open config.json and change keymapMode to false. ' +
+    'To close, press Ctrl-C or close the window.');
+  iohook.start();
+} else {
+  init();
+}
