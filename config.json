@@ -33,5 +33,5 @@
   /*
     Set this to the same value that you use in Spotify's settings. 
   */
-  crossfade: 12,
+  crossfade: 3,
 }

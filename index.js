@@ -109,18 +109,19 @@ function sendPublicFile(res, filename) {
 async function getNowPlayingCallStack() {
   return getNowPlayingData()
     .then((nowPlaying) => {
-      trackProgress = nowPlaying.progress_ms;
-      trackProgressLastUpdate = Date.now();
+      if (typeof nowPlaying !== 'undefined') {
+        trackProgress = nowPlaying.progress_ms;
+        trackProgressLastUpdate = Date.now();
+        nowPlayingFormatted = formatNowPlayingDataObject(nowPlaying);
 
-      return [formatNowPlayingDataObject(nowPlaying), nowPlaying];
-    }).then(([nowPlayingFormatted, nowPlaying]) => {
-      setupProgressInterval();
-      setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
-      previousPlayingFormatted = nowPlayingFormatted;
+        setupProgressInterval();
+        setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying);
+        previousPlayingFormatted = nowPlayingFormatted;
 
-      return outputFileData(nowPlayingFormatted);
+        return outputFileData(nowPlayingFormatted);
+      }
     }).catch((error) => {
-      console.log(`Error "${error}" when retrieving now playing data from main thread!`);
+      console.log(`Error "${error}" when retrieving now playing data from callstack!`);
     });
 }
 
