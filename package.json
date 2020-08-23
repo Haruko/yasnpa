@@ -1,6 +1,6 @@
 {
   "name": "yasnpa",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Yet Another Spotify Now Playing App",
   "main": "index.js",
   "bin": "index.js",
