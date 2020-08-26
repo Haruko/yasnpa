@@ -10,6 +10,21 @@ const iohook = require('iohook');
 
 const dirname = path.dirname(process.execPath);
 
+/*let numRequests = 0;
+axios.interceptors.request.use((config) => {
+  ++numRequests;
+  const now = new Date();
+
+  console.log(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}` +
+    ` Request made! #${numRequests} ${config.url}`);
+
+  return Promise.resolve(config);
+}, (error) => {
+  console.log('Interceptor error!');
+  // console.log(error);
+  return Promise.reject(error);
+});*/
+
 /**
     Config
 */
@@ -271,12 +286,15 @@ function setupEndOfSongTimeout(nowPlayingFormatted, nowPlaying) {
   clearTimeout(endOfSongTimeoutID);
 
   // Set up new end of song timeout
+  // 1s delay to make sure the song actually ended
+  const timeoutLength = currentTrackData.duration_ms - nowPlaying.progress_ms - (crossfade * 1000) + 1000;
+
   endOfSongTimeoutID = setTimeout(() => {
     return getNowPlayingCallStack()
       .catch((error) => {
         console.log(`Error "${error}" when retrieving now playing data from end of song!`);
       });
-  }, currentTrackData.duration_ms - nowPlaying.progress_ms - (crossfade * 1000) + 25);
+  }, timeoutLength);
 }
 
 async function setupProgressInterval() {
